@@ -6,7 +6,6 @@ Do you need an LLM to triage GitHub issues? This benchmark sorts 2,700 real issu
 
 <!-- paste the table from results/report.md here -->
 
-![quality vs cost](results/f1_vs_cost.png)
 
 ## Methods
 
