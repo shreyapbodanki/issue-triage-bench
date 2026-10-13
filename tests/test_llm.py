@@ -71,6 +71,23 @@ def test_retries_on_overloaded(tmp_path, monkeypatch):
     assert client.calls == 3 and out[0]["pred"] in LABELS
 
 
+def test_turns_thinking_off_and_sends_no_temperature(tmp_path):
+    _, _, test = _split()
+    client = FakeClient()
+    clf = ClaudeClassifier("fake-model", PRICES, client=client, cache_dir=tmp_path, workers=1)
+    clf.run(test[:1], progress=False)
+    assert client.last_kwargs == {"thinking": {"type": "disabled"}}
+
+
+def test_falls_back_when_model_rejects_thinking_setting(tmp_path):
+    _, _, test = _split()
+    client = FakeClient(reject_thinking=True)
+    clf = ClaudeClassifier("fake-model", PRICES, client=client, cache_dir=tmp_path, workers=1)
+    out = clf.run(test[:2], progress=False)
+    assert all(r["pred"] in LABELS for r in out)
+    assert client.last_kwargs == {}
+
+
 def test_cost_uses_prices(tmp_path):
     clf = ClaudeClassifier("fake-model", PRICES, client=FakeClient(), cache_dir=tmp_path)
     assert clf.cost(1_000_000, 1_000_000) == pytest.approx(6.0)

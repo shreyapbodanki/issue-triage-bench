@@ -52,13 +52,20 @@ def write_fixture(data_dir):
 class FakeClient:
     """stands in for anthropic.Anthropic, answers by keyword"""
 
-    def __init__(self, fail_first=0):
+    def __init__(self, fail_first=0, reject_thinking=False):
         self.calls = 0
         self.fail_first = fail_first
+        self.reject_thinking = reject_thinking
+        self.last_kwargs = None
         self.messages = self
 
-    def create(self, model, max_tokens, temperature, system, messages):
+    def create(self, model, max_tokens, system, messages, **kw):
         self.calls += 1
+        self.last_kwargs = kw
+        if self.reject_thinking and "thinking" in kw:
+            err = Exception("thinking: type disabled is not supported for this model")
+            err.status_code = 400
+            raise err
         if self.fail_first > 0:
             self.fail_first -= 1
             err = Exception("overloaded")

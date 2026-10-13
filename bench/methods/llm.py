@@ -113,6 +113,7 @@ class ClaudeClassifier:
         self.example_chars = example_chars
         self.cache = DiskCache(Path(cache_dir) / f"{model}.jsonl")
         self.workers = workers
+        self.disable_thinking = True
 
     def build_messages(self, rec):
         msgs = []
@@ -138,23 +139,28 @@ class ClaudeClassifier:
             return hit, True
         for attempt in range(7):
             try:
+                kw = dict(model=self.model, max_tokens=16, system=SYSTEM, messages=msgs)
+                # a one word answer needs no thinking, and thinking tokens would eat max_tokens
+                if self.disable_thinking:
+                    kw["thinking"] = {"type": "disabled"}
                 t0 = time.perf_counter()
-                resp = self.client.messages.create(
-                    model=self.model, max_tokens=5, temperature=0,
-                    system=SYSTEM, messages=msgs,
-                )
+                resp = self.client.messages.create(**kw)
                 latency = time.perf_counter() - t0
                 break
             except Exception as e:  # noqa: BLE001
                 status = getattr(e, "status_code", None)
                 name = type(e).__name__
+                if status == 400 and self.disable_thinking and "thinking" in str(e).lower():
+                    self.disable_thinking = False  # model rejects the setting, use its default
+                    continue
                 if status in RETRYABLE or name in ("APIConnectionError", "APITimeoutError"):
                     time.sleep(min(2 ** attempt + random.random(), 60))
                     continue
                 raise
         else:
             raise RuntimeError("api kept failing, try fewer --workers")
-        text = "".join(getattr(b, "text", "") for b in resp.content)
+        # only text blocks, skip any thinking blocks
+        text = "".join(b.text for b in resp.content if getattr(b, "type", "text") == "text")
         row = {"key": key, "text": text, "latency_s": latency,
                "input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}
         self.cache.put(row)
