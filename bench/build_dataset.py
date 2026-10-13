@@ -9,13 +9,15 @@ a token with no scopes is fine since these are public repos
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections import Counter
+from pathlib import Path
 
 import requests
 
-from .data import (LABELS, balance, clean_body, clean_title, repo_holdout_split,
+from .data import (LABELS, balance, clean_body, clean_title, read_jsonl, repo_holdout_split,
                    stratified_split, write_jsonl)
 
 API = "https://api.github.com"
@@ -83,22 +85,41 @@ def main():
     p.add_argument("--holdout-repo", default=None, help="test on this repo only, train on the rest")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--check-labels", action="store_true", help="only verify label names exist")
+    p.add_argument("--from-raw", action="store_true",
+                   help="reuse issues saved in data/raw by an earlier run, no github requests")
     args = p.parse_args()
 
     cfg = json.load(open(args.config))
-    gh = GitHub(os.environ.get("GITHUB_TOKEN"))
-    if not os.environ.get("GITHUB_TOKEN"):
-        print("warning: no GITHUB_TOKEN, you will hit the 60 per hour limit fast")
+    raw_dir = Path(args.out) / "raw"
+    gh = None
+    if not args.from_raw:
+        gh = GitHub(os.environ.get("GITHUB_TOKEN"))
+        if not os.environ.get("GITHUB_TOKEN"):
+            print("warning: no GITHUB_TOKEN, you will hit the 60 per hour limit fast")
 
-    # make sure every configured label exists before spending requests
-    for entry in cfg["repos"]:
-        existing = gh.labels(entry["repo"])
-        for cls, names in entry["labels"].items():
-            missing = [n for n in names if n not in existing]
-            if missing:
-                print(f"  {entry['repo']}: label(s) {missing} for {cls} not found")
-    if args.check_labels:
-        return
+        # make sure every configured label exists before spending requests
+        for entry in cfg["repos"]:
+            existing = gh.labels(entry["repo"])
+            for cls, names in entry["labels"].items():
+                missing = [n for n in names if n not in existing]
+                if missing:
+                    print(f"  {entry['repo']}: label(s) {missing} for {cls} not found")
+        if args.check_labels:
+            return
+
+    def fetch(repo, name):
+        # raw api results are saved so cleaning changes never need a refetch
+        f = raw_dir / f"{repo.replace('/', '__')}__{re.sub(r'[^A-Za-z0-9]+', '_', name)}.jsonl"
+        if args.from_raw:
+            if not f.exists():
+                sys.exit(f"no raw file {f}, run once without --from-raw")
+            return read_jsonl(f)
+        items = gh.issues(repo, name, args.per_class * 2, args.max_pages)
+        slim = [{"number": x["number"], "title": x["title"], "body": x.get("body") or "",
+                 "labels": [{"name": l["name"]} for l in x["labels"]],
+                 "created_at": x["created_at"], "html_url": x["html_url"]} for x in items]
+        write_jsonl(f, slim)
+        return slim
 
     raw, records = [], {}
     for entry in cfg["repos"]:
@@ -108,7 +129,7 @@ def main():
         for cls, names in entry["labels"].items():
             assert cls in LABELS, f"unknown class {cls}"
             for name in names:
-                items = gh.issues(repo, name, args.per_class * 2, args.max_pages)
+                items = fetch(repo, name)
                 print(f"  {repo:30s} {name:22s} -> {cls:8s} {len(items)} issues")
                 for it in items:
                     classes = {name_to_cls[l["name"]] for l in it["labels"] if l["name"] in name_to_cls}

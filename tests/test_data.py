@@ -15,6 +15,10 @@ from fixtures import make_issues
     ("[Feature Request] dark mode", "dark mode"),
     ("[BUG] ENH: double prefix", "double prefix"),
     ("Bugfix needed in parser", "Bugfix needed in parser"),
+    ("[DevTools Bug] profiler crashes", "profiler crashes"),
+    ("[Compiler Bug]: memo breaks refs", "memo breaks refs"),
+    ("[Feature]: allow custom themes", "allow custom themes"),
+    ("[v2.1] crash on start", "[v2.1] crash on start"),
     ("Question marks break the lexer", "Question marks break the lexer"),
 ])
 def test_clean_title(raw, clean):
@@ -39,6 +43,32 @@ def test_clean_body_removes_template():
     assert "please fill" not in out
     assert "The parser fails on unicode." in out
     assert "It should parse." in out
+
+
+def test_clean_body_removes_form_field_answers():
+    # tensorflow style issue form
+    body = (
+        "### Issue type\n\nSupport\n\n"
+        "### Have you reproduced the bug with TensorFlow Nightly?\n\nYes\n\n"
+        "### TensorFlow version\n\n2.15\n\n"
+        "### Current behavior?\n\n"
+        "Model.fit hangs after the first epoch when using a custom generator.\n"
+    )
+    out = clean_body(body)
+    assert "Support" not in out and "Yes" not in out and "2.15" not in out
+    assert "Model.fit hangs" in out
+
+
+def test_clean_body_keeps_short_real_sentences_and_code_comments():
+    body = (
+        "### Description\n\nIt crashes.\n\n"
+        "```python\n# load the data\nimport numpy as np\n```\n"
+        "Bug\n"
+    )
+    out = clean_body(body)
+    assert "It crashes." in out
+    assert "# load the data" in out
+    assert "\nBug" not in out
 
 
 def test_clean_body_shortens_code_and_caps_length():

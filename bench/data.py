@@ -19,13 +19,27 @@ _PREFIX = re.compile(
     rf"^\s*(?:[\[\(]\s*{_WORDS}\s*[\]\)]\s*[:\-–]?|{_WORDS}\s*[:\-–])\s*",
     re.IGNORECASE,
 )
+# bracketed tags with a class word inside like "[DevTools Bug]:" or "[Compiler Bug]"
+_TAG = re.compile(
+    r"^\s*[\[\(][^\]\)\n]{0,40}\b(?:bugs?|enh|enhancement|feat|feature|features|request|"
+    r"qst|question|questions|support)\b[^\]\)\n]{0,40}[\]\)]\s*[:\-–]?\s*",
+    re.IGNORECASE,
+)
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
-_HEADING = re.compile(r"^\s{0,3}#{1,6}\s.*$", re.MULTILINE)
-_BOLD_LINE = re.compile(r"^\s*\*\*[^*\n]{1,80}\*\*:?\s*$", re.MULTILINE)
-_CHECKBOX = re.compile(r"^\s*[-*]\s*\[[ xX]\].*$", re.MULTILINE)
+_HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
+_BOLD_LINE = re.compile(r"^\s*\*\*[^*\n]{1,80}\*\*:?\s*$")
+_CHECKBOX = re.compile(r"^\s*[-*]\s*\[[ xX]\]")
 _SPACES = re.compile(r"[ \t]+")
 _NEWLINES = re.compile(r"\n{3,}")
+
+# one word template answers like tensorflow's "Issue type: Support" field
+TEMPLATE_VALUES = {
+    "bug", "bugs", "feature", "feature request", "enhancement", "support", "question",
+    "questions", "usage question", "yes", "no", "n/a", "na", "none", "other", "others",
+    "documentation bug", "documentation feature request", "build/install", "performance",
+    "source", "binary", "_no response_", "no response",
+}
 
 
 def _shorten_code(m, keep=6):
@@ -41,24 +55,57 @@ def clean_title(title):
     while prev != title:
         prev = title
         title = _PREFIX.sub("", title, count=1)
+        title = _TAG.sub("", title, count=1)
     return title.strip()
+
+
+def _is_field_answer(s):
+    # short value under a template heading like "Bug" "Yes" "2.15" "Ubuntu 22.04"
+    return len(s.split()) <= 4 and not s.endswith((".", "!", "?", ":"))
 
 
 def clean_body(body, max_chars=1500):
     """remove issue template scaffolding that leaks the label
 
     templates add headings like "### Bug description" or "**Is your feature request
-    related to a problem**" which make classification trivially easy for every
-    method, so they get dropped and only what the person actually wrote stays
+    related to a problem**", and form fields whose answer is the label itself
+    ("### Issue type" then "Support"). left in, these make classification trivially
+    easy for every method, so they get dropped and only what the person wrote stays
     """
     if not body:
         return ""
     body = body.replace("\r\n", "\n")
     body = _HTML_COMMENT.sub("", body)
     body = _CODE_BLOCK.sub(_shorten_code, body)
-    body = _HEADING.sub("", body)
-    body = _BOLD_LINE.sub("", body)
-    body = _CHECKBOX.sub("", body)
+
+    out, in_code, after_heading = [], False, False
+    for line in body.split("\n"):
+        s = line.strip()
+        if s.startswith("```"):
+            in_code = not in_code
+            after_heading = False
+            out.append(line)
+            continue
+        if in_code:
+            out.append(line)  # keep code as is, "# comment" is not a heading
+            continue
+        if not s:
+            out.append("")
+            continue
+        if _HEADING.match(line) or _BOLD_LINE.match(line):
+            after_heading = True
+            continue
+        if _CHECKBOX.match(line):
+            continue
+        if s.lower().strip("*_`: ") in TEMPLATE_VALUES:
+            continue
+        if after_heading and _is_field_answer(s):
+            after_heading = False
+            continue
+        after_heading = False
+        out.append(line)
+
+    body = "\n".join(out)
     body = _SPACES.sub(" ", body)
     body = _NEWLINES.sub("\n\n", body).strip()
     if len(body) > max_chars:
