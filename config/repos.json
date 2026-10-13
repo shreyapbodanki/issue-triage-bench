@@ -1,0 +1,17 @@
+{
+  "_note": "label names are case sensitive, run python -m bench.build_dataset --check-labels to verify them",
+  "repos": [
+    {"repo": "pandas-dev/pandas",
+     "labels": {"bug": ["Bug"], "feature": ["Enhancement"], "question": ["Usage Question"]}},
+    {"repo": "numpy/numpy",
+     "labels": {"bug": ["00 - Bug"], "feature": ["01 - Enhancement"], "question": ["33 - Question"]}},
+    {"repo": "facebook/react",
+     "labels": {"bug": ["Type: Bug"], "feature": ["Type: Feature Request"], "question": ["Type: Question"]}},
+    {"repo": "tensorflow/tensorflow",
+     "labels": {"bug": ["type:bug"], "feature": ["type:feature"], "question": ["type:support"]}},
+    {"repo": "kubernetes/kubernetes",
+     "labels": {"bug": ["kind/bug"], "feature": ["kind/feature"], "question": ["kind/support"]}},
+    {"repo": "microsoft/vscode",
+     "labels": {"bug": ["bug"], "feature": ["feature-request"], "question": ["*question"]}}
+  ]
+}
